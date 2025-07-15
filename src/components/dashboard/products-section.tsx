@@ -11,7 +11,7 @@ import { ShoppingCart, Clock } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, doc, updateDoc, Timestamp, addDoc, runTransaction, writeBatch } from "firebase/firestore";
+import { collection, onSnapshot, doc, updateDoc, Timestamp, addDoc, runTransaction, writeBatch, orderBy, query } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { createTransaction } from "@/services/transactionService";
@@ -82,13 +82,15 @@ const ProductsSection = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "products"), (snapshot) => {
+    const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
         const productsData = snapshot.docs.map(doc => {
             const data = doc.data();
             return {
                 id: doc.id,
                 ...data,
                 timeLimitSetAt: data.timeLimitSetAt instanceof Timestamp ? data.timeLimitSetAt.toDate() : undefined,
+                createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
             } as Product
         });
         
@@ -103,7 +105,8 @@ const ProductsSection = () => {
             if (!aIsLimited && bIsLimited) {
                 return 1; // b comes first
             }
-            return 0; // maintain original order
+            // For items that are not limited-time, or if both are, sort by creation date (already done by the query)
+            return 0;
         });
         
         setProducts(sortedProducts);
@@ -205,7 +208,7 @@ const ProductsSection = () => {
     }
   };
 
-  const isQuantityValid = Number(quantity) > 0;
+  const isQuantityValid = Number(quantity) > 0 && String(quantity).trim() !== '';
 
   return (
     <>
@@ -224,6 +227,8 @@ const ProductsSection = () => {
             
             if (isLimited && isExpired) return null; // Don't show expired limited-time products
             
+            const dailyYieldAmount = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(product.price * (product.dailyYield / 100));
+
             return (
               <Card key={product.id} className="flex flex-col">
                 <div className="relative w-full h-48">
@@ -254,7 +259,7 @@ const ProductsSection = () => {
                   </p>
                    <div className="flex justify-between items-baseline text-sm">
                     <p className="text-green-600 font-semibold">
-                      Genera {product.dailyYield}% diario
+                      Genera {product.dailyYield}% diario (+{dailyYieldAmount})
                     </p>
                     <p className="text-muted-foreground">
                         Duración: {product.durationDays} días
