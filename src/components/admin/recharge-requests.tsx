@@ -11,7 +11,6 @@ import { useToast } from "@/hooks/use-toast";
 import { CheckCircle, XCircle } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { collection, query, where, onSnapshot, doc, runTransaction, getDoc, Timestamp, getDocs, addDoc, orderBy } from 'firebase/firestore';
-import { createTransaction } from '@/services/transactionService';
 
 // Helper to get the referral commission percentage from Firestore config or fallback
 const getReferralPercentage = async (): Promise<number> => {
@@ -126,15 +125,17 @@ const RechargeRequests = () => {
                             const commissionAmount = requestToProcess.amount * commissionPercentage;
                             
                             const newReferrerBalance = referrerUser.balance + commissionAmount;
-                            const commissionTransaction: Omit<Transaction, 'id'> = {
+                             const commissionTransactionData: Omit<Transaction, 'id' | 'date'> & { date: Timestamp } = {
                                 userId: referrerDoc.id,
                                 type: 'credit',
                                 amount: commissionAmount,
                                 description: `Comisión por referido ${rechargedUser.phone}`,
-                                date: new Date(),
+                                date: Timestamp.now(),
                             };
-
-                            await createTransaction(commissionTransaction);
+                            
+                            // Create transaction using the transaction runner
+                            const newCommissionTransRef = doc(collection(db, 'transactions'));
+                            transactionRunner.set(newCommissionTransRef, commissionTransactionData);
                             
                             transactionRunner.update(referrerDocRef, {
                                 balance: newReferrerBalance,
@@ -151,15 +152,17 @@ const RechargeRequests = () => {
                     // --- End: Referral Commission Logic ---
 
                     const newBalance = rechargedUser.balance + requestToProcess.amount;
-                    const newTransaction: Omit<Transaction, 'id'> = {
+                    const newTransactionData: Omit<Transaction, 'id' | 'date'> & { date: Timestamp } = {
                         userId: rechargedUser.id,
                         type: 'credit',
                         amount: requestToProcess.amount,
                         description: `Recarga aprobada (Ref: ${requestToProcess.id})`,
-                        date: new Date(),
+                        date: Timestamp.now(),
                     };
                     
-                    await createTransaction(newTransaction);
+                    // Create transaction using the transaction runner
+                    const newRechargeTransRef = doc(collection(db, 'transactions'));
+                    transactionRunner.set(newRechargeTransRef, newTransactionData);
 
                     transactionRunner.update(userDocRef, {
                         balance: newBalance,
