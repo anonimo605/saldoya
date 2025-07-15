@@ -6,34 +6,46 @@ import BalanceCard from "@/components/dashboard/balance-card";
 import TransactionHistory from "@/components/dashboard/transaction-history";
 import DashboardNav from "@/components/dashboard/dashboard-nav";
 import { useAuth } from "@/hooks/use-auth";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Megaphone } from "lucide-react";
+import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { doc, onSnapshot } from "firebase/firestore";
-import { ANNOUNCEMENT_CONFIG_ID } from "@/components/admin/withdrawal-settings-form"; // Updated import path
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Megaphone } from "lucide-react";
 
-type Announcement = {
-  content: string;
-  isEnabled: boolean;
+
+const AnnouncementDisplay = () => {
+    const [announcement, setAnnouncement] = useState<{ content: string; isEnabled: boolean } | null>(null);
+
+    useEffect(() => {
+        const fetchAnnouncement = async () => {
+            const docRef = doc(db, 'config', 'announcement');
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                setAnnouncement(docSnap.data() as { content: string; isEnabled: boolean });
+            }
+        };
+        fetchAnnouncement();
+    }, []);
+
+    if (!announcement || !announcement.isEnabled || !announcement.content) {
+        return null;
+    }
+
+    return (
+        <Alert className="mb-6">
+            <Megaphone className="h-4 w-4" />
+            <AlertTitle>Anuncio Importante</AlertTitle>
+            <AlertDescription>
+                {announcement.content}
+            </AlertDescription>
+        </Alert>
+    );
 };
+
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
 
   const balance = user?.balance ?? 0;
-
-  useEffect(() => {
-    const docRef = doc(db, 'config', ANNOUNCEMENT_CONFIG_ID);
-    const unsubscribe = onSnapshot(docRef, (doc) => {
-        if (doc.exists()) {
-            setAnnouncement(doc.data() as Announcement);
-        } else {
-            setAnnouncement(null);
-        }
-    });
-    return () => unsubscribe();
-  }, []);
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
@@ -50,15 +62,7 @@ export default function DashboardPage() {
           )}
       </div>
 
-      {announcement?.isEnabled && announcement.content && (
-        <Alert className="bg-primary/10 border-primary/20 text-primary-foreground">
-          <Megaphone className="h-4 w-4 text-primary" />
-          <AlertTitle className="text-primary font-bold">Aviso Importante</AlertTitle>
-          <AlertDescription className="text-primary/90">
-            {announcement.content}
-          </AlertDescription>
-        </Alert>
-      )}
+      <AnnouncementDisplay />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -73,3 +77,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    
