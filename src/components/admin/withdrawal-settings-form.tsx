@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect } from 'react';
-import { useForm, useForm as useAnnouncementForm } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
@@ -10,22 +10,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Save, Percent, Clock, Megaphone } from 'lucide-react';
+import { Save, Percent, Clock } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { Checkbox } from "@/components/ui/checkbox";
 import type { WithdrawalSettings } from '@/lib/types';
-import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Separator } from '@/components/ui/separator';
-
-export const ANNOUNCEMENT_CONFIG_ID = 'announcement';
-
-const announcementSchema = z.object({
-    content: z.string().max(500, "El anuncio no puede tener más de 500 caracteres.").optional(),
-    isEnabled: z.boolean().default(false),
-});
-
+import { Textarea } from '@/components/ui/textarea';
 
 const DEFAULT_SETTINGS: WithdrawalSettings = {
     minWithdrawal: 10000,
@@ -46,7 +37,7 @@ const daysOfWeek = [
     { id: 0, label: 'Domingo' },
 ];
 
-const formSchema = z.object({
+const withdrawalFormSchema = z.object({
     minWithdrawal: z.coerce.number().positive("El monto mínimo debe ser un número positivo."),
     dailyLimit: z.coerce.number().int().min(1, "El límite diario debe ser al menos 1."),
     withdrawalFeePercentage: z.coerce.number().min(0, "El porcentaje no puede ser negativo.").max(100, "El porcentaje no puede ser mayor a 100."),
@@ -58,17 +49,22 @@ const formSchema = z.object({
     path: ["withdrawalEndTime"], 
 });
 
+const announcementFormSchema = z.object({
+    content: z.string().max(500, "El anuncio no puede tener más de 500 caracteres."),
+    isEnabled: z.boolean().default(false),
+});
+
 
 const WithdrawalSettingsForm = () => {
     const { toast } = useToast();
 
-    const withdrawalForm = useForm<z.infer<typeof formSchema>>({
-        resolver: zodResolver(formSchema),
+    const withdrawalForm = useForm<z.infer<typeof withdrawalFormSchema>>({
+        resolver: zodResolver(withdrawalFormSchema),
         defaultValues: DEFAULT_SETTINGS,
     });
-
-    const announcementForm = useAnnouncementForm<z.infer<typeof announcementSchema>>({
-        resolver: zodResolver(announcementSchema),
+    
+    const announcementForm = useForm<z.infer<typeof announcementFormSchema>>({
+        resolver: zodResolver(announcementFormSchema),
         defaultValues: {
             content: '',
             isEnabled: false,
@@ -88,21 +84,17 @@ const WithdrawalSettingsForm = () => {
             }
         };
         const fetchAnnouncement = async () => {
-            try {
-                const docRef = doc(db, 'config', ANNOUNCEMENT_CONFIG_ID);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    announcementForm.reset(docSnap.data());
-                }
-            } catch (error) {
-                console.error("Error fetching announcement:", error);
-            }
-        };
+             const docRef = doc(db, 'config', 'announcement');
+             const docSnap = await getDoc(docRef);
+             if (docSnap.exists()) {
+                 announcementForm.reset(docSnap.data());
+             }
+        }
         fetchSettings();
         fetchAnnouncement();
     }, [withdrawalForm, announcementForm]);
 
-    const onWithdrawalSubmit = async (values: z.infer<typeof formSchema>) => {
+    const onWithdrawalSubmit = async (values: z.infer<typeof withdrawalFormSchema>) => {
         try {
             const configDocRef = doc(db, 'config', 'withdrawals');
             await setDoc(configDocRef, values, { merge: true });
@@ -119,10 +111,10 @@ const WithdrawalSettingsForm = () => {
             console.error("Error saving withdrawal settings:", error);
         }
     };
-
-     const onAnnouncementSubmit = async (values: z.infer<typeof announcementSchema>) => {
+    
+    const onAnnouncementSubmit = async (values: z.infer<typeof announcementFormSchema>) => {
         try {
-            const docRef = doc(db, 'config', ANNOUNCEMENT_CONFIG_ID);
+            const docRef = doc(db, 'config', 'announcement');
             await setDoc(docRef, values, { merge: true });
             toast({
                 title: "Anuncio Guardado",
@@ -139,8 +131,8 @@ const WithdrawalSettingsForm = () => {
     };
 
     return (
-        <div className="space-y-8">
-            <Card>
+        <div className="space-y-6">
+             <Card>
                 <CardHeader>
                     <CardTitle>Ajustes de Retiro</CardTitle>
                     <CardDescription>
@@ -283,14 +275,12 @@ const WithdrawalSettingsForm = () => {
                     </Form>
                 </CardContent>
             </Card>
-
-            <Separator />
-
-            <Card>
-                 <CardHeader>
-                    <CardTitle>Gestionar Anuncio Global</CardTitle>
+            
+             <Card>
+                <CardHeader>
+                    <CardTitle>Configurar Anuncio Global</CardTitle>
                     <CardDescription>
-                        Escribe el mensaje que quieres mostrar a todos los usuarios en su panel. Usa el interruptor para activarlo o desactivarlo.
+                        Este mensaje aparecerá en el panel de todos los usuarios. Usa el interruptor para activarlo o desactivarlo.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -303,9 +293,6 @@ const WithdrawalSettingsForm = () => {
                                     <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                                     <div className="space-y-0.5">
                                         <FormLabel>Mostrar Anuncio</FormLabel>
-                                        <CardDescription>
-                                            Si está activado, el anuncio será visible para todos los usuarios.
-                                        </CardDescription>
                                     </div>
                                     <FormControl>
                                         <Switch
@@ -325,7 +312,7 @@ const WithdrawalSettingsForm = () => {
                                         <FormControl>
                                             <Textarea
                                                 placeholder="Escribe tu mensaje aquí..."
-                                                className="min-h-[120px]"
+                                                className="min-h-[100px]"
                                                 {...field}
                                             />
                                         </FormControl>
@@ -333,18 +320,20 @@ const WithdrawalSettingsForm = () => {
                                     </FormItem>
                                 )}
                             />
-                        
+                           
                             <Button type="submit" disabled={announcementForm.formState.isSubmitting}>
-                                <Megaphone className="mr-2 h-4 w-4" />
+                                <Save className="mr-2 h-4 w-4" />
                                 Guardar Anuncio
                             </Button>
                         </form>
                     </Form>
                 </CardContent>
             </Card>
+
         </div>
     );
 }
 
 export default WithdrawalSettingsForm;
 
+    
