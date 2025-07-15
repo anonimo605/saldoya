@@ -23,9 +23,9 @@ import {
 } from 'firebase/firestore';
 
 // This function processes pending yields for a user's active products.
-const processProductYields = async (user: User, purchasedProducts: PurchasedProduct[]): Promise<{ updatedUser: User, updatedProducts: PurchasedProduct[], hasChanges: boolean }> => {
+const processProductYields = async (user: User, purchasedProducts: PurchasedProduct[]): Promise<{ updatedUser: User, updatedProducts: PurchasedProduct[], newTransactions: Omit<Transaction, 'id'>[], hasChanges: boolean }> => {
     if (!user || !purchasedProducts || purchasedProducts.length === 0) {
-        return { updatedUser: user, updatedProducts: purchasedProducts, hasChanges: false };
+        return { updatedUser: user, updatedProducts: purchasedProducts, newTransactions: [], hasChanges: false };
     }
 
     const now = new Date();
@@ -99,22 +99,18 @@ const processProductYields = async (user: User, purchasedProducts: PurchasedProd
     });
 
     if (hasChanges) {
-        // Create new transaction documents
-        for (const tx of newTransactions) {
-            await createTransaction(tx);
-        }
-
         return {
             updatedUser: {
                 ...user,
                 balance: updatedBalance,
             },
             updatedProducts: updatedPurchasedProducts,
+            newTransactions,
             hasChanges: true
         };
     }
     
-    return { updatedUser: user, updatedProducts: purchasedProducts, hasChanges: false };
+    return { updatedUser: user, updatedProducts: purchasedProducts, newTransactions: [], hasChanges: false };
 };
 
 
@@ -162,13 +158,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }, []);
 
     const updateUserAndYield = async (userId: string, fetchedUser: User, fetchedProducts: PurchasedProduct[]) => {
-        const { updatedUser, updatedProducts, hasChanges } = await processProductYields(fetchedUser, fetchedProducts);
+        const { updatedUser, updatedProducts, newTransactions, hasChanges } = await processProductYields(fetchedUser, fetchedProducts);
         
         if (hasChanges) {
-            await saveUserAndProductsChanges(userId, updatedUser, updatedProducts);
-            setUser(updatedUser);
-            setPurchasedProducts(updatedProducts);
+            await saveUserAndProductsChanges(userId, updatedUser, updatedProducts, newTransactions);
+            // The listeners will update the state automatically, so no need to call setUser/setPurchasedProducts here.
         } else {
+            // If no changes from yield processing, just set the state with fetched data.
             setUser(fetchedUser);
             setPurchasedProducts(fetchedProducts);
         }
@@ -230,9 +226,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const processUserYields = async () => {
        if (user) {
-            const { updatedUser, updatedProducts, hasChanges } = await processProductYields(user, purchasedProducts);
+            const { updatedUser, updatedProducts, newTransactions, hasChanges } = await processProductYields(user, purchasedProducts);
             if (hasChanges) {
-                await saveUserAndProductsChanges(user.id, updatedUser, updatedProducts);
+                await saveUserAndProductsChanges(user.id, updatedUser, updatedProducts, newTransactions);
             }
         }
     };
@@ -354,7 +350,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    const saveUserAndProductsChanges = async (userId: string, userData: User, products: PurchasedProduct[]) => {
+    const saveUserAndProductsChanges = async (userId: string, userData: User, products: PurchasedProduct[], newTransactions: Omit<Transaction, 'id'>[]) => {
         const batch = writeBatch(db);
         const userDocRef = doc(db, 'users', userId);
         
@@ -369,6 +365,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 purchaseDate: Timestamp.fromDate(new Date(product.purchaseDate)),
                 ...(product.lastYieldDate && { lastYieldDate: Timestamp.fromDate(new Date(product.lastYieldDate)) }),
             });
+        });
+        
+        // Add new transaction documents to the batch
+        newTransactions.forEach(tx => {
+            const newTxRef = doc(collection(db, 'transactions'));
+            const transactionWithTimestamp = {
+                ...tx,
+                date: Timestamp.fromDate(tx.date instanceof Date ? tx.date : new Date()),
+            };
+            batch.set(newTxRef, transactionWithTimestamp);
         });
 
         await batch.commit();
